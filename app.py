@@ -29,7 +29,21 @@ def build_app() -> gr.Blocks:
     with gr.Blocks(title="SimpleTranslationUI") as demo:
         app_state = gr.State(_make_state())
 
-        gr.Markdown("# SimpleTranslationUI\nTibetan Buddhist Translation Editor")
+        gr.Markdown(
+            "# SimpleTranslationUI\nTibetan Buddhist Translation Editor\n\n"
+            "**How to use:** Upload a source document below — it's automatically split into "
+            "segments (by paragraph, then by sentence-ending shad marks or whitespace for long "
+            "paragraphs). Click **Translate All** to translate every segment, or translate one "
+            "segment at a time with its own **Translate** button. Edit any translation inline, "
+            "then **Download** the result as text, Word, or JSON.\n\n"
+            "**Choosing a model:** By default (no API key) translation runs on a **local CPU "
+            "model** (`billingsmoore/mlotsawa-ground-base`) — free, runs on this machine, but a "
+            "plain seq2seq model with no instruction-following (it ignores the translation "
+            "prompt below) and lower translation quality. For higher-quality, instruction-"
+            "following translation, add an **OpenRouter API key** in Settings and pick a model "
+            "from the dropdown — this calls OpenRouter's API (usage is billed to your OpenRouter "
+            "account) and uses the editable translation prompt."
+        )
 
         with gr.Row():
             source_input = gr.File(
@@ -42,12 +56,6 @@ def build_app() -> gr.Blocks:
                 file_types=[".json"],
                 scale=1,
             )
-
-        gr.Markdown(
-            "Upload a plain text file, Word document, or PDF. It's automatically split into "
-            "segments (by paragraph, then by sentence-ending shad marks or whitespace for long "
-            "paragraphs) so each piece gets one translation call."
-        )
 
         with gr.Accordion("Settings", open=False):
             with gr.Row():
