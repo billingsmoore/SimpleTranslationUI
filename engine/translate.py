@@ -46,6 +46,24 @@ def translate_segments(
     total = len(translatable)
     print(f"[INFO] Translating {total} segment(s) via {'OpenRouter' if key else 'local CPU model'}.")
 
+    if not key:
+        # No GPU to exploit here, so there's no throughput win from batching on CPU
+        # (a single sequence's matmuls already use all available threads) — batching
+        # would only add padding waste and delay every result in a chunk until the
+        # slowest one finishes. One at a time also means the UI can show each
+        # translation the moment it's ready instead of waiting on a whole chunk.
+        for i, (idx, text) in enumerate(translatable):
+            if stop is not None and stop.is_set():
+                break
+            if progress_callback:
+                progress_callback(i, total)
+            try:
+                segments[idx]["target"] = local_backend.translate_batch([text])[0]
+            except Exception as e:
+                print(f"[WARN] Local translation failed for segment {idx + 1}: {e}")
+                errors.append(f"Segment {idx + 1}: {e}")
+        return segments, errors
+
     recent: list[str] = []
     for batch_start in range(0, total, _BATCH_SIZE):
         if stop is not None and stop.is_set():
@@ -57,34 +75,25 @@ def translate_segments(
         if progress_callback:
             progress_callback(batch_start, total)
 
-        if key:
-            preceding = recent[-3:] if recent else None
-            translations = openrouter_backend.translate_batch(texts, key, model, template, preceding=preceding)
-            if translations is None:
-                translations = []
-                for idx, text in zip(indices, texts):
-                    if stop is not None and stop.is_set():
-                        break
-                    try:
-                        t = openrouter_backend.translate_one(text, key, model, template)
-                    except Exception as e:
-                        print(f"[WARN] Segment {idx + 1} failed: {e}")
-                        errors.append(f"Segment {idx + 1}: {e}")
-                        t = ""
-                    translations.append(t)
-                    recent.append(t)
-                for idx, t in zip(indices, translations):
-                    if t:
-                        segments[idx]["target"] = t
-                continue
-        else:
-            try:
-                translations = local_backend.translate_batch(texts)
-            except Exception as e:
-                print(f"[WARN] Local batch translation failed: {e}")
-                for idx in indices:
+        preceding = recent[-3:] if recent else None
+        translations = openrouter_backend.translate_batch(texts, key, model, template, preceding=preceding)
+        if translations is None:
+            translations = []
+            for idx, text in zip(indices, texts):
+                if stop is not None and stop.is_set():
+                    break
+                try:
+                    t = openrouter_backend.translate_one(text, key, model, template)
+                except Exception as e:
+                    print(f"[WARN] Segment {idx + 1} failed: {e}")
                     errors.append(f"Segment {idx + 1}: {e}")
-                continue
+                    t = ""
+                translations.append(t)
+                recent.append(t)
+            for idx, t in zip(indices, translations):
+                if t:
+                    segments[idx]["target"] = t
+            continue
 
         for idx, t in zip(indices, translations):
             segments[idx]["target"] = t

@@ -1,5 +1,5 @@
 import threading
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 import pytest
 
@@ -87,10 +87,68 @@ def test_translate_segments_skips_empty_source():
 def test_translate_segments_local_backend_path(monkeypatch):
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     segments = _segments("a", "b")
-    with patch("engine.translate.local_backend.translate_batch", return_value=["A", "B"]):
+    # local backend is called one segment at a time (see test_local_backend_calls_one_at_a_time),
+    # so the fake must respond per-call rather than returning one fixed list for all calls.
+    with patch("engine.translate.local_backend.translate_batch", side_effect=lambda texts: [texts[0].upper()]):
         result, errors = tr.translate_segments(segments, None, "model")
     assert [s["target"] for s in result] == ["A", "B"]
     assert errors == []
+
+
+def test_translate_segments_local_backend_calls_one_at_a_time(monkeypatch):
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    segments = _segments("a", "b", "c")
+    with patch(
+        "engine.translate.local_backend.translate_batch", side_effect=lambda texts: [t.upper() for t in texts]
+    ) as mock_local:
+        tr.translate_segments(segments, None, "model")
+    assert mock_local.call_args_list == [call(["a"]), call(["b"]), call(["c"])]
+
+
+def test_translate_segments_local_backend_progress_callback_per_segment(monkeypatch):
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    segments = _segments("a", "b", "c")
+    progress_calls = []
+    with patch("engine.translate.local_backend.translate_batch", side_effect=lambda texts: [t.upper() for t in texts]):
+        tr.translate_segments(
+            segments, None, "model",
+            progress_callback=lambda i, total: progress_calls.append((i, total)),
+        )
+    assert progress_calls == [(0, 3), (1, 3), (2, 3)]
+
+
+def test_translate_segments_local_backend_respects_stop_between_segments(monkeypatch):
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    segments = _segments("a", "b", "c")
+    stop = threading.Event()
+
+    def fake_batch(texts):
+        if texts == ["b"]:
+            stop.set()
+        return [t.upper() for t in texts]
+
+    with patch("engine.translate.local_backend.translate_batch", side_effect=fake_batch):
+        result, errors = tr.translate_segments(segments, None, "model", stop=stop)
+
+    assert [s["target"] for s in result] == ["A", "B", ""]
+    assert errors == []
+
+
+def test_translate_segments_local_backend_one_segment_error_does_not_stop_others(monkeypatch):
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    segments = _segments("a", "b", "c")
+
+    def fake_batch(texts):
+        if texts == ["b"]:
+            raise RuntimeError("boom")
+        return [t.upper() for t in texts]
+
+    with patch("engine.translate.local_backend.translate_batch", side_effect=fake_batch):
+        result, errors = tr.translate_segments(segments, None, "model")
+
+    assert [s["target"] for s in result] == ["A", "", "C"]
+    assert len(errors) == 1
+    assert "Segment 2" in errors[0]
 
 
 def test_translate_segments_local_backend_error_recorded(monkeypatch):
