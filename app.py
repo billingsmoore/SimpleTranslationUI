@@ -107,7 +107,7 @@ def build_app() -> gr.Blocks:
                     label="Files to include", choices=[], value=[], visible=False, scale=2,
                 )
                 get_files_btn = gr.Button("Get Files", variant="primary", scale=0, min_width=100, visible=False)
-            download_zip = gr.File(label="Download", visible=True, interactive=False)
+            download_zip = gr.File(label="Download", visible=False, interactive=False)
 
             slot_groups, slot_sources, slot_targets, slot_translate_btns = [], [], [], []
 

@@ -19,3 +19,15 @@ def test_build_app_falls_back_gracefully_if_model_fetch_fails():
          patch("app.DEFAULT_MODEL", "model/a"):
         demo = build_app()
     assert demo is not None
+
+
+def test_download_file_hidden_until_get_files_clicked():
+    with patch("app.list_model_choices", return_value=["model/a"]), \
+         patch("app.DEFAULT_MODEL", "model/a"):
+        demo = build_app()
+    download_components = [
+        b for b in demo.blocks.values()
+        if b.__class__.__name__ == "File" and b.label == "Download"
+    ]
+    assert len(download_components) == 1
+    assert download_components[0].visible is False
