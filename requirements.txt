@@ -1,6 +1,6 @@
 gradio>=6.9.0
 spaces
-google-genai
+requests
 python-dotenv
 transformers
 torch

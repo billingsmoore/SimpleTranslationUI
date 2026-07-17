@@ -32,17 +32,22 @@ engine/
   chunking.py               Plain-text -> segment list (paragraph, then shad/whitespace splitting)
   formats.py                Read .txt/.docx/.pdf; write .txt/.docx/.json
   prompt.py                 Read/write/reset translation_prompt.txt (local file only)
-  translate.py              Backend dispatcher (Gemini vs local CPU model) + batching/progress
-  gemini_backend.py          Gemini API calls, retries, fallback model chain, batch prompt building
+  translate.py              Backend dispatcher (OpenRouter vs local CPU model) + batching/progress
+  openrouter_backend.py      OpenRouter API calls, retries, server-side model fallback, batch prompt building
   local_backend.py           CPU fallback: AutoModelForSeq2SeqLM "billingsmoore/mlotsawa-ground-base"
 ```
 
 ## Translation backend selection
 
 `engine/translate.py::_resolve_key()` decides per-call:
-- A Gemini API key was typed into the UI, **or** `GEMINI_API_KEY` is set (env var / `.env`) → use Gemini,
-  with the prompt in `translation_prompt.txt` (editable in Settings) and the model picked in the dropdown
-  (`FALLBACK_CHAIN` in `engine/gemini_backend.py`; falls through the chain on failure).
+- An OpenRouter API key was typed into the UI, **or** `OPENROUTER_API_KEY` is set (env var / `.env`)
+  → use OpenRouter, with the prompt in `translation_prompt.txt` (editable in Settings) and the model
+  picked in the dropdown. The dropdown is populated by `engine/openrouter_backend.py::list_model_choices()`,
+  which live-fetches OpenRouter's `/models` catalog and puts `CURATED_MODELS` (a small hand-picked,
+  known-good-for-translation set) at the top, followed by the rest of the text-output catalog
+  alphabetically — falls back to just `CURATED_MODELS` if the fetch fails (offline, OpenRouter down).
+  `CURATED_MODELS` also doubles as the `models` fallback array OpenRouter is given per request, so it
+  retries server-side against another good model if the chosen one errors out.
 - No key anywhere → use the local CPU model `billingsmoore/mlotsawa-ground-base` via
   `AutoModelForSeq2SeqLM.generate()` directly (see `engine/local_backend.py`). This is a plain finetuned
   T5 seq2seq model — it does **not** read `translation_prompt.txt` at all. First call downloads the
@@ -69,8 +74,32 @@ timestamp concept anywhere in this app — segments are just `{"source": str, "t
 pip install -r requirements.txt
 python app.py
 ```
-Opens on `http://localhost:7860`. Put `GEMINI_API_KEY=...` in a `.env` file to default to Gemini
-without typing a key into the UI each time.
+Opens on `http://localhost:7860`. Put `OPENROUTER_API_KEY=...` in a `.env` file to default to
+OpenRouter without typing a key into the UI each time.
+
+## Testing
+
+```bash
+pip install -r requirements-dev.txt
+pytest
+```
+
+`tests/` covers chunking, file I/O (txt/docx/pdf load+export, JSON resume),
+prompt storage, the OpenRouter backend (model curation/fetch-fallback, request
+retry/fallback logic, batch prompt building/parsing — all with `requests`
+mocked, no real network calls or API key needed), the backend dispatcher, the
+local CPU backend (with `torch`/`transformers` stubbed via `sys.modules` so
+the suite doesn't require installing those heavy deps), the Gradio event
+handlers, and a smoke test that the Blocks graph in `app.py` builds without
+error. `samples/sample_tibetan.{txt,docx,pdf}` are real Tibetan-script fixture
+files (a well-known refuge/bodhicitta verse, the four immeasurables, and a
+dedication verse) used by the format-loading tests and useful for manually
+exercising the upload flow.
+
+A `pre-push` git hook (`.githooks/pre-push`) runs the full suite and blocks
+the push if anything fails. It's already installed into `.git/hooks/pre-push`
+in this working copy; on a fresh clone, install it with either
+`git config core.hooksPath .githooks` or `cp .githooks/pre-push .git/hooks/`.
 
 ## Conventions to keep
 

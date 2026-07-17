@@ -1,5 +1,5 @@
 """CPU translation backend using billingsmoore/mlotsawa-ground-base
-(a Tibetan->English seq2seq T5 model). Used whenever no Gemini API key is
+(a Tibetan->English seq2seq T5 model). Used whenever no OpenRouter API key is
 available. The model is loaded once, lazily, on first use.
 
 Generation uses the model's own task_specific_params["translation_bo_to_en"]

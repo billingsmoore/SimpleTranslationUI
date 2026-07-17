@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import gradio as gr
-from engine import FALLBACK_CHAIN
+from engine import DEFAULT_MODEL, list_model_choices
 
 from styles import CSS
 from handlers import (
@@ -51,20 +51,23 @@ def build_app() -> gr.Blocks:
 
         with gr.Accordion("Settings", open=False):
             with gr.Row():
-                gemini_api_key = gr.Textbox(
-                    label="Gemini API Key (optional)",
-                    placeholder="AIza… — leave blank to use the local CPU model instead",
+                openrouter_api_key = gr.Textbox(
+                    label="OpenRouter API Key (optional)",
+                    placeholder="sk-or-… — leave blank to use the local CPU model instead",
                     type="password",
                     scale=2,
                 )
-                gemini_model = gr.Dropdown(
-                    choices=FALLBACK_CHAIN, value=FALLBACK_CHAIN[0],
-                    label="Gemini Model (only used if a key is given)", scale=1,
+                openrouter_model = gr.Dropdown(
+                    choices=list_model_choices(), value=DEFAULT_MODEL,
+                    label="OpenRouter Model (only used if a key is given)",
+                    info="A few recommended models are pinned at the top; the rest of "
+                         "OpenRouter's catalog is below — type to filter.",
+                    scale=1,
                 )
 
             gr.Markdown(
                 "### Translation Prompt\n"
-                "Only used when translating with Gemini — the local CPU fallback "
+                "Only used when translating with OpenRouter — the local CPU fallback "
                 "(billingsmoore/mlotsawa-ground-base) is a plain translation model and ignores this. "
                 "Saved directly to `translation_prompt.txt` in this app's folder."
             )
@@ -127,7 +130,7 @@ def build_app() -> gr.Blocks:
 
         translate_event = translate_all_btn.click(
             _translate_all,
-            inputs=[app_state, gemini_api_key, gemini_model, *slot_sources, *slot_targets],
+            inputs=[app_state, openrouter_api_key, openrouter_model, *slot_sources, *slot_targets],
             outputs=translate_all_outputs,
         )
         cancel_btn.click(fn=None, cancels=[translate_event])
@@ -155,7 +158,7 @@ def build_app() -> gr.Blocks:
                 outputs=[slot_targets[i]],
             ).then(
                 fn=lambda state, source, key, model, i=i: _translate_one(state, i, source, key, model),
-                inputs=[app_state, slot_sources[i], gemini_api_key, gemini_model],
+                inputs=[app_state, slot_sources[i], openrouter_api_key, openrouter_model],
                 outputs=[app_state, slot_targets[i]],
             )
 

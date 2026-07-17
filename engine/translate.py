@@ -1,29 +1,31 @@
-"""Backend dispatcher: Gemini if an API key is available (user-supplied or
-GEMINI_API_KEY env var), otherwise the local CPU model. Callers don't need
+"""Backend dispatcher: OpenRouter if an API key is available (user-supplied or
+OPENROUTER_API_KEY env var), otherwise the local CPU model. Callers don't need
 to know which backend actually ran."""
 
 import os
 
-from . import gemini_backend
 from . import local_backend
+from . import openrouter_backend
 from .prompt import read_prompt
 
-FALLBACK_CHAIN = gemini_backend.FALLBACK_CHAIN
-_BATCH_SIZE = gemini_backend._BATCH_SIZE
+CURATED_MODELS = openrouter_backend.CURATED_MODELS
+DEFAULT_MODEL = openrouter_backend.DEFAULT_MODEL
+list_model_choices = openrouter_backend.list_model_choices
+_BATCH_SIZE = openrouter_backend._BATCH_SIZE
 
 
 def _resolve_key(api_key: str | None) -> str:
-    return (api_key or "").strip() or os.environ.get("GEMINI_API_KEY", "")
+    return (api_key or "").strip() or os.environ.get("OPENROUTER_API_KEY", "")
 
 
-def using_gemini(api_key: str | None) -> bool:
+def using_openrouter(api_key: str | None) -> bool:
     return bool(_resolve_key(api_key))
 
 
 def translate_one(text: str, api_key: str | None, model: str) -> str:
     key = _resolve_key(api_key)
     if key:
-        return gemini_backend.translate_one(text, key, model, read_prompt())
+        return openrouter_backend.translate_one(text, key, model, read_prompt())
     return local_backend.translate_batch([text])[0]
 
 
@@ -42,7 +44,7 @@ def translate_segments(
         if not seg.get("target", "").strip() and seg.get("source", "").strip()
     ]
     total = len(translatable)
-    print(f"[INFO] Translating {total} segment(s) via {'Gemini' if key else 'local CPU model'}.")
+    print(f"[INFO] Translating {total} segment(s) via {'OpenRouter' if key else 'local CPU model'}.")
 
     recent: list[str] = []
     for batch_start in range(0, total, _BATCH_SIZE):
@@ -57,14 +59,14 @@ def translate_segments(
 
         if key:
             preceding = recent[-3:] if recent else None
-            translations = gemini_backend.translate_batch(texts, key, model, template, preceding=preceding)
+            translations = openrouter_backend.translate_batch(texts, key, model, template, preceding=preceding)
             if translations is None:
                 translations = []
                 for idx, text in zip(indices, texts):
                     if stop is not None and stop.is_set():
                         break
                     try:
-                        t = gemini_backend.translate_one(text, key, model, template)
+                        t = openrouter_backend.translate_one(text, key, model, template)
                     except Exception as e:
                         print(f"[WARN] Segment {idx + 1} failed: {e}")
                         errors.append(f"Segment {idx + 1}: {e}")

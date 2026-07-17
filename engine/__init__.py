@@ -13,8 +13,10 @@ from .formats import (
 )
 from .prompt import read_prompt, save_prompt, reset_prompt, PROMPT_PATH
 from .translate import (
-    FALLBACK_CHAIN,
+    CURATED_MODELS,
+    DEFAULT_MODEL,
+    list_model_choices,
     translate_one,
     translate_segments,
-    using_gemini,
+    using_openrouter,
 )

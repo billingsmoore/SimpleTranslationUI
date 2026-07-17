@@ -10,7 +10,6 @@ from pathlib import Path
 import gradio as gr
 
 from engine import (
-    FALLBACK_CHAIN,
     export_to_docx,
     export_to_json,
     export_to_txt,
@@ -21,7 +20,7 @@ from engine import (
     save_prompt,
     translate_one as _engine_translate_one,
     translate_segments,
-    using_gemini,
+    using_openrouter,
 )
 
 MAX_SLOTS = 25
@@ -249,7 +248,7 @@ def _translate_all(state, api_key, model, *slot_values):
     targets = list(slot_values[MAX_SLOTS:])
     state = _save_page_edits(state, sources, targets)
 
-    backend = "Gemini" if using_gemini(api_key) else "local CPU model (mlotsawa-ground-base)"
+    backend = "OpenRouter" if using_openrouter(api_key) else "local CPU model (mlotsawa-ground-base)"
 
     stop = threading.Event()
     result = [None, None]

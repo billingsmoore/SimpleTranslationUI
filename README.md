@@ -21,9 +21,11 @@ projects — just upload, translate, edit, download.
 
 ## Translation backend
 
-- If you provide a **Gemini API key** (in the UI, or via a `GEMINI_API_KEY`
-  env var / `.env` file), translation uses Gemini with the editable prompt
-  in the Settings panel (`translation_prompt.txt`).
+- If you provide an **OpenRouter API key** (in the UI, or via an
+  `OPENROUTER_API_KEY` env var / `.env` file), translation uses whichever
+  OpenRouter model you pick from the Settings dropdown (live-fetched from
+  OpenRouter's catalog, with a few recommended models pinned to the top),
+  with the editable prompt in the Settings panel (`translation_prompt.txt`).
 - Otherwise it falls back to a **local CPU model**,
   [billingsmoore/mlotsawa-ground-base](https://huggingface.co/billingsmoore/mlotsawa-ground-base),
   loaded via `transformers`. The prompt box has no effect on this backend —
@@ -37,8 +39,8 @@ pip install -r requirements.txt
 python app.py
 ```
 
-Optionally set `GEMINI_API_KEY` in a `.env` file to default to Gemini without
-typing a key into the UI each time.
+Optionally set `OPENROUTER_API_KEY` in a `.env` file to default to OpenRouter
+without typing a key into the UI each time.
 
 ## Downloads
 
