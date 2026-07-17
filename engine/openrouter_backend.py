@@ -29,7 +29,9 @@ DEFAULT_MODEL = CURATED_MODELS[0]
 _TIMEOUT = 120
 _MODELS_TIMEOUT = 10
 _BACKOFF_BASE = 2
-_BATCH_SIZE = 25
+# Kept small (rather than e.g. one batch per page) so the UI can show translated
+# segments as each batch finishes instead of the whole page appearing at once.
+_BATCH_SIZE = 5
 
 _RETRYABLE_STATUS = {408, 429, 500, 502, 503, 504}
 

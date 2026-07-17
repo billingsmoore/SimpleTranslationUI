@@ -135,7 +135,8 @@ def test_translate_segments_per_segment_fallback_records_errors_and_continues():
 
 def test_translate_segments_respects_stop_event_between_batches():
     stop = threading.Event()
-    segments = _segments(*[f"seg{i}" for i in range(60)])  # 60 > _BATCH_SIZE(25), needs 3 batches
+    total = tr._BATCH_SIZE * 3  # several batches' worth, so stopping mid-way is observable
+    segments = _segments(*[f"seg{i}" for i in range(total)])
 
     call_count = {"n": 0}
 
@@ -150,11 +151,12 @@ def test_translate_segments_respects_stop_event_between_batches():
 
     assert call_count["n"] == 1  # stopped before the second batch
     assert result[0]["target"] == "SEG0"
-    assert result[59]["target"] == ""
+    assert result[-1]["target"] == ""
 
 
 def test_translate_segments_progress_callback_invoked_per_batch():
-    segments = _segments(*[f"seg{i}" for i in range(30)])
+    total = tr._BATCH_SIZE * 2 + 1  # forces (at least) 3 batches
+    segments = _segments(*[f"seg{i}" for i in range(total)])
     progress_calls = []
 
     with patch("engine.translate.openrouter_backend.translate_batch", side_effect=lambda texts, *a, **kw: texts):
@@ -163,11 +165,13 @@ def test_translate_segments_progress_callback_invoked_per_batch():
             progress_callback=lambda i, total: progress_calls.append((i, total)),
         )
 
-    assert progress_calls == [(0, 30), (25, 30)]
+    expected = [(i, total) for i in range(0, total, tr._BATCH_SIZE)]
+    assert progress_calls == expected
 
 
 def test_translate_segments_passes_recent_translations_as_preceding_context():
-    segments = _segments(*[f"seg{i}" for i in range(30)])
+    total = tr._BATCH_SIZE * 2
+    segments = _segments(*[f"seg{i}" for i in range(total)])
     seen_preceding = []
 
     def fake_batch(texts, api_key, model, template, preceding=None):
@@ -177,5 +181,6 @@ def test_translate_segments_passes_recent_translations_as_preceding_context():
     with patch("engine.translate.openrouter_backend.translate_batch", side_effect=fake_batch):
         tr.translate_segments(segments, "key", "model")
 
+    last_of_first_batch = [f"seg{i}" for i in range(tr._BATCH_SIZE)][-3:]
     assert seen_preceding[0] is None  # nothing translated yet for the first batch
-    assert seen_preceding[1] == ["seg22", "seg23", "seg24"]  # last 3 of the first batch
+    assert seen_preceding[1] == last_of_first_batch
