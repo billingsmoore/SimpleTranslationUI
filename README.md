@@ -32,6 +32,11 @@ projects — just upload, translate, edit, download.
   it's a plain seq2seq translation model, not an instruction-following LLM.
   First use downloads the model (a few hundred MB) and is slow; keep it running.
 
+  This model was introduced in the paper
+  [*Optimizing T5 for Lightweight Tibetan-English Translation*](https://doi.org/10.21203/rs.3.rs-7409829/v1)
+  (Moore & Lauren, 2025); its training/evaluation code lives in
+  [optimizing-t5-tibetan-english-mt](https://github.com/billingsmoore/optimizing-t5-tibetan-english-mt).
+
 ## Setup
 
 ```bash

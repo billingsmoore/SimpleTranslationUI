@@ -52,6 +52,9 @@ engine/
   `AutoModelForSeq2SeqLM.generate()` directly (see `engine/local_backend.py`). This is a plain finetuned
   T5 seq2seq model — it does **not** read `translation_prompt.txt` at all. First call downloads the
   model (~a few hundred MB) and is slow on CPU; it stays cached in memory for the life of the process.
+  This model was introduced in ["Optimizing T5 for Lightweight Tibetan-English Translation"](https://doi.org/10.21203/rs.3.rs-7409829/v1)
+  (Moore & Lauren, 2025); its training/eval code is at
+  [optimizing-t5-tibetan-english-mt](https://github.com/billingsmoore/optimizing-t5-tibetan-english-mt).
 
 **Why not `pipeline("translation", ...)`:** that's the model card's documented usage, but the
 `"translation"` pipeline task was removed in `transformers>=5` (raises `Unknown task translation`).
@@ -109,3 +112,10 @@ in this working copy; on a fresh clone, install it with either
   deliberate scope expansion, not a bug to fix.
 - This repo has no relationship to `Garchen`'s git history — it's fine to `git init` here and commit
   independently.
+
+## Remotes
+
+Two remotes, same dual-remote convention as `Garchen`: `origin` = GitHub
+(https://github.com/billingsmoore/SimpleTranslationUI, source of truth) and `space` = the deployed
+Hugging Face Space (https://huggingface.co/spaces/billingsmoore/SimpleTranslationUI). Push to `origin`
+for normal commits; push to `space` (`git push space main:main`) to actually redeploy the Space.
