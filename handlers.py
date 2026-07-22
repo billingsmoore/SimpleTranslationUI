@@ -4,6 +4,7 @@ import math
 import os
 import tempfile
 import threading
+import uuid
 import zipfile
 from pathlib import Path
 
@@ -14,6 +15,7 @@ from engine import (
     export_to_json,
     export_to_txt,
     load_source_file,
+    log_event,
     parse_json,
     read_prompt,
     reset_prompt,
@@ -29,7 +31,25 @@ MAX_SLOTS = 25
 # ── State ─────────────────────────────────────────────────────────────────────
 
 def _make_state() -> dict:
-    return {"page": 0, "segments": [], "has_translation": False, "label": "output"}
+    return {
+        "page": 0,
+        "segments": [],
+        "has_translation": False,
+        "label": "output",
+        "session_id": uuid.uuid4().hex,
+        "usage_tracking_enabled": True,
+    }
+
+
+def _log(state: dict, event_type: str, payload: dict) -> None:
+    if not state.get("usage_tracking_enabled", True):
+        return
+    log_event(event_type, state.get("session_id", ""), payload)
+
+
+def _set_usage_tracking(state: dict, enabled: bool):
+    state["usage_tracking_enabled"] = enabled
+    return state
 
 
 def _save_page_edits(state: dict, sources: list, targets: list) -> dict:
@@ -115,6 +135,13 @@ def _load_source(source_file, state):
     state["label"] = label
     state["has_translation"] = False
 
+    _log(state, "upload", {
+        "filename": Path(path).name,
+        "file_type": Path(path).suffix.lstrip("."),
+        "segment_count": len(segments),
+        "segments": [{"source": seg.get("source", "")} for seg in segments],
+    })
+
     return (*_load_page(state), gr.update(visible=True))
 
 
@@ -140,6 +167,16 @@ def _load_resume_json(resume_file, state):
 
     state["has_translation"] = any(seg.get("target") for seg in state["segments"])
     state["page"] = 0
+
+    _log(state, "resume", {
+        "filename": Path(path).name,
+        "segment_count": len(state["segments"]),
+        "segments": [
+            {"source": seg.get("source", ""), "target": seg.get("target", "")}
+            for seg in state["segments"]
+        ],
+    })
+
     return _load_page(state)
 
 
@@ -189,6 +226,13 @@ def _handle_save(state, *slot_values):
     sources = list(slot_values[:MAX_SLOTS])
     targets = list(slot_values[MAX_SLOTS:])
     state = _save_page_edits(state, sources, targets)
+
+    n = min(MAX_SLOTS, len(state["segments"]) - state["page"] * MAX_SLOTS)
+    _log(state, "edit", {
+        "segment_count": max(n, 0),
+        "segments": [{"source": sources[i], "target": targets[i]} for i in range(max(n, 0))],
+    })
+
     return state, gr.update(value="Saved.", visible=True)
 
 
@@ -223,6 +267,15 @@ def _handle_get_files(state, selected_labels):
         for path in chosen:
             zf.write(path, arcname=os.path.basename(path))
 
+    _log(state, "download", {
+        "formats": list(selected_labels or []),
+        "segment_count": len(segments),
+        "segments": [
+            {"source": seg.get("source", ""), "target": seg.get("target", "")}
+            for seg in segments
+        ],
+    })
+
     return gr.update(value=zip_path, visible=True), gr.update(visible=False), gr.update(visible=False)
 
 
@@ -239,6 +292,13 @@ def _translate_one(state: dict, slot_idx: int, source: str, api_key: str, model:
     if actual_idx < len(segments):
         segments[actual_idx]["target"] = text
         state["segments"] = segments
+
+    backend = f"openrouter:{model}" if using_openrouter(api_key) else "local_cpu"
+    _log(state, "translate", {
+        "backend": backend,
+        "segment_count": 1,
+        "segments": [{"source": source, "target": text}],
+    })
 
     return state, gr.update(value=text)
 
@@ -289,7 +349,18 @@ def _translate_all(state, api_key, model, *slot_values):
     if errors:
         status += f" {len(errors)} error(s)."
 
+    _log(state, "translate", {
+        "backend": backend,
+        "segment_count": count,
+        "segments": [{"source": seg.get("source", ""), "target": seg.get("target", "")} for seg in segments],
+    })
+
     yield (*_load_page(state), gr.update(value=status, visible=True))
+
+
+def _handle_cancel_translate(state: dict):
+    _log(state, "translate_cancel", {})
+    return state
 
 
 # ── Prompt management ─────────────────────────────────────────────────────────
@@ -298,14 +369,16 @@ def _read_prompt() -> str:
     return read_prompt()
 
 
-def _save_prompt(text: str):
+def _save_prompt(state: dict, text: str):
     save_prompt(text)
-    return gr.update(value="Prompt saved.")
+    _log(state, "prompt_save", {"prompt": text})
+    return state, gr.update(value="Prompt saved.")
 
 
-def _reset_prompt():
+def _reset_prompt(state: dict):
     text = reset_prompt()
-    return gr.update(value=text), gr.update(value="Prompt reset to default.")
+    _log(state, "prompt_reset", {})
+    return state, gr.update(value=text), gr.update(value="Prompt reset to default.")
 
 
 # ── Navigation ────────────────────────────────────────────────────────────────
@@ -316,6 +389,7 @@ def _handle_prev(state, *slot_values):
     state = _save_page_edits(state, sources, targets)
     if state["page"] > 0:
         state["page"] -= 1
+    _log(state, "navigate", {"direction": "prev", "page": state["page"]})
     return _load_page(state)
 
 
@@ -327,4 +401,5 @@ def _handle_next(state, *slot_values):
     total_pages = math.ceil(total / MAX_SLOTS) if total else 1
     if state["page"] < total_pages - 1:
         state["page"] += 1
+    _log(state, "navigate", {"direction": "next", "page": state["page"]})
     return _load_page(state)

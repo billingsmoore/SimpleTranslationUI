@@ -10,6 +10,13 @@ import handlers as h
 SAMPLES_DIR = Path(__file__).parent.parent / "samples"
 
 
+@pytest.fixture(autouse=True)
+def no_hf_token(monkeypatch):
+    """Usage logging fails open without HF_TOKEN, so tests that don't
+    explicitly mock log_event still can't make a real network call."""
+    monkeypatch.delenv("HF_TOKEN", raising=False)
+
+
 def _segments(*sources):
     return [{"source": s, "target": ""} for s in sources]
 
@@ -18,7 +25,24 @@ def _segments(*sources):
 
 def test_make_state_defaults():
     state = h._make_state()
-    assert state == {"page": 0, "segments": [], "has_translation": False, "label": "output"}
+    assert state["page"] == 0
+    assert state["segments"] == []
+    assert state["has_translation"] is False
+    assert state["label"] == "output"
+    assert state["usage_tracking_enabled"] is True
+    assert state["session_id"]
+
+
+def test_make_state_generates_unique_session_ids():
+    assert h._make_state()["session_id"] != h._make_state()["session_id"]
+
+
+def test_set_usage_tracking_toggles_flag():
+    state = h._make_state()
+    state = h._set_usage_tracking(state, False)
+    assert state["usage_tracking_enabled"] is False
+    state = h._set_usage_tracking(state, True)
+    assert state["usage_tracking_enabled"] is True
 
 
 def test_save_page_edits_writes_current_page_slots():
@@ -157,6 +181,29 @@ def test_load_source_txt_populates_segments():
     assert result[-1]["visible"] is True
 
 
+def test_load_source_logs_upload_event():
+    state = h._make_state()
+    path = str(SAMPLES_DIR / "sample_tibetan.txt")
+    with patch.object(h, "log_event") as mock_log:
+        h._load_source(path, state)
+    mock_log.assert_called_once()
+    event_type, session_id, payload = mock_log.call_args[0]
+    assert event_type == "upload"
+    assert session_id == state["session_id"]
+    assert payload["filename"] == "sample_tibetan.txt"
+    assert payload["file_type"] == "txt"
+    assert payload["segment_count"] == len(state["segments"])
+
+
+def test_load_source_skips_logging_when_tracking_disabled():
+    state = h._make_state()
+    state["usage_tracking_enabled"] = False
+    path = str(SAMPLES_DIR / "sample_tibetan.txt")
+    with patch.object(h, "log_event") as mock_log:
+        h._load_source(path, state)
+    mock_log.assert_not_called()
+
+
 def test_load_source_bad_file_hides_editor_and_does_not_raise(tmp_path):
     bad_path = tmp_path / "bad.rtf"
     bad_path.write_text("nope", encoding="utf-8")
@@ -259,9 +306,32 @@ def test_handle_save_persists_edits_and_shows_status():
     state = h._make_state()
     state["segments"] = _segments("a")
     slot_values = ["edited"] + [""] * (h.MAX_SLOTS - 1) + ["translated"] + [""] * (h.MAX_SLOTS - 1)
-    new_state, status = h._handle_save(state, *slot_values)
+    with patch.object(h, "log_event"):
+        new_state, status = h._handle_save(state, *slot_values)
     assert new_state["segments"][0] == {"source": "edited", "target": "translated"}
     assert status["value"] == "Saved."
+
+
+def test_handle_save_logs_edit_event():
+    state = h._make_state()
+    state["segments"] = _segments("a")
+    slot_values = ["edited"] + [""] * (h.MAX_SLOTS - 1) + ["translated"] + [""] * (h.MAX_SLOTS - 1)
+    with patch.object(h, "log_event") as mock_log:
+        h._handle_save(state, *slot_values)
+    event_type, session_id, payload = mock_log.call_args[0]
+    assert event_type == "edit"
+    assert session_id == state["session_id"]
+    assert payload["segments"] == [{"source": "edited", "target": "translated"}]
+
+
+def test_handle_save_skips_logging_when_tracking_disabled():
+    state = h._make_state()
+    state["usage_tracking_enabled"] = False
+    state["segments"] = _segments("a")
+    slot_values = [""] * h.MAX_SLOTS * 2
+    with patch.object(h, "log_event") as mock_log:
+        h._handle_save(state, *slot_values)
+    mock_log.assert_not_called()
 
 
 # ── translation handlers ──────────────────────────────────────────────────
@@ -270,11 +340,25 @@ def test_translate_one_updates_state_and_returns_text():
     state = h._make_state()
     state["segments"] = _segments("source text")
     state["page"] = 0
-    with patch.object(h, "_engine_translate_one", return_value="translated!") as mock_translate:
+    with patch.object(h, "_engine_translate_one", return_value="translated!") as mock_translate, \
+         patch.object(h, "log_event"):
         new_state, update = h._translate_one(state, 0, "source text", "api-key", "model-x")
     assert update["value"] == "translated!"
     assert new_state["segments"][0]["target"] == "translated!"
     mock_translate.assert_called_once_with("source text", "api-key", "model-x")
+
+
+def test_translate_one_logs_translate_event():
+    state = h._make_state()
+    state["segments"] = _segments("source text")
+    with patch.object(h, "_engine_translate_one", return_value="translated!"), \
+         patch.object(h, "using_openrouter", return_value=True), \
+         patch.object(h, "log_event") as mock_log:
+        h._translate_one(state, 0, "source text", "api-key", "model-x")
+    event_type, session_id, payload = mock_log.call_args[0]
+    assert event_type == "translate"
+    assert payload["backend"] == "openrouter:model-x"
+    assert payload["segments"] == [{"source": "source text", "target": "translated!"}]
 
 
 def test_translate_one_records_error_in_target():
@@ -311,7 +395,8 @@ def test_translate_all_reports_completion_status():
         return segments, []
 
     with patch.object(h, "translate_segments", side_effect=fake_translate_segments), \
-         patch.object(h, "using_openrouter", return_value=True):
+         patch.object(h, "using_openrouter", return_value=True), \
+         patch.object(h, "log_event") as mock_log:
         results = list(h._translate_all(state, "api-key", "model-x", *slot_values))
 
     final = results[-1]
@@ -319,6 +404,11 @@ def test_translate_all_reports_completion_status():
     assert "Translated 2 segment(s) via OpenRouter." in status["value"]
     final_state = final[0]
     assert [s["target"] for s in final_state["segments"]] == ["A", "B"]
+
+    event_type, session_id, payload = mock_log.call_args[0]
+    assert event_type == "translate"
+    assert payload["segment_count"] == 2
+    assert payload["segments"] == [{"source": "a", "target": "A"}, {"source": "b", "target": "B"}]
 
 
 def test_translate_all_reports_errors_in_status():
@@ -371,10 +461,108 @@ def test_read_save_reset_prompt_roundtrip(monkeypatch, tmp_path):
 
     assert h._read_prompt() == "default"
 
-    status = h._save_prompt("edited")
+    state = h._make_state()
+    _, status = h._save_prompt(state, "edited")
     assert status["value"] == "Prompt saved."
     assert h._read_prompt() == "edited"
 
-    box_update, status_update = h._reset_prompt()
+    _, box_update, status_update = h._reset_prompt(state)
     assert box_update["value"] == "default"
     assert status_update["value"] == "Prompt reset to default."
+
+
+def test_save_prompt_logs_prompt_save_event():
+    state = h._make_state()
+    with patch.object(h, "log_event") as mock_log:
+        h._save_prompt(state, "new prompt text")
+    event_type, session_id, payload = mock_log.call_args[0]
+    assert event_type == "prompt_save"
+    assert session_id == state["session_id"]
+    assert payload["prompt"] == "new prompt text"
+
+
+def test_reset_prompt_logs_prompt_reset_event():
+    state = h._make_state()
+    with patch.object(h, "log_event") as mock_log:
+        h._reset_prompt(state)
+    event_type, session_id, payload = mock_log.call_args[0]
+    assert event_type == "prompt_reset"
+    assert session_id == state["session_id"]
+
+
+# ── other interaction logging ───────────────────────────────────────────────
+
+def test_load_resume_json_logs_resume_event():
+    state = h._make_state()
+    state["segments"] = _segments("a", "b", "c")
+    resume_content = json.dumps([
+        {"source": "a", "target": "A"},
+        {"source": "b", "target": ""},
+        {"source": "c", "target": "C"},
+    ])
+    import tempfile
+    with tempfile.NamedTemporaryFile(suffix=".json", mode="w", delete=False) as f:
+        f.write(resume_content)
+        path = f.name
+
+    with patch.object(h, "log_event") as mock_log:
+        h._load_resume_json(path, state)
+
+    event_type, session_id, payload = mock_log.call_args[0]
+    assert event_type == "resume"
+    assert payload["filename"] == Path(path).name
+    assert payload["segment_count"] == 3
+    assert payload["segments"] == [
+        {"source": "a", "target": "A"},
+        {"source": "b", "target": ""},
+        {"source": "c", "target": "C"},
+    ]
+
+
+def test_handle_get_files_logs_download_event():
+    state = h._make_state()
+    state["segments"] = [{"source": "src", "target": "tgt"}]
+    state["label"] = "lbl"
+    with patch.object(h, "log_event") as mock_log:
+        h._handle_get_files(state, ["Translation (TXT)"])
+    event_type, session_id, payload = mock_log.call_args[0]
+    assert event_type == "download"
+    assert payload["formats"] == ["Translation (TXT)"]
+    assert payload["segments"] == [{"source": "src", "target": "tgt"}]
+
+
+def test_handle_get_files_no_selection_does_not_log():
+    state = h._make_state()
+    state["segments"] = [{"source": "src", "target": "tgt"}]
+    with patch.object(h, "log_event") as mock_log:
+        h._handle_get_files(state, [])
+    mock_log.assert_not_called()
+
+
+def test_handle_prev_and_next_log_navigate_events():
+    state = h._make_state()
+    state["segments"] = _segments(*[f"s{i}" for i in range(h.MAX_SLOTS + 3)])
+    state["page"] = 0
+    slot_values = [""] * h.MAX_SLOTS * 2
+
+    with patch.object(h, "log_event") as mock_log:
+        result = h._handle_next(state, *slot_values)
+    new_state = result[0]
+    event_type, session_id, payload = mock_log.call_args[0]
+    assert event_type == "navigate"
+    assert payload == {"direction": "next", "page": 1}
+
+    with patch.object(h, "log_event") as mock_log:
+        h._handle_prev(new_state, *slot_values)
+    event_type, session_id, payload = mock_log.call_args[0]
+    assert event_type == "navigate"
+    assert payload == {"direction": "prev", "page": 0}
+
+
+def test_handle_cancel_translate_logs_event():
+    state = h._make_state()
+    with patch.object(h, "log_event") as mock_log:
+        h._handle_cancel_translate(state)
+    event_type, session_id, payload = mock_log.call_args[0]
+    assert event_type == "translate_cancel"
+    assert session_id == state["session_id"]

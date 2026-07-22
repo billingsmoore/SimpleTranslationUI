@@ -2,6 +2,7 @@ gradio>=6.9.0
 spaces
 requests
 python-dotenv
+huggingface_hub
 transformers
 torch
 sentencepiece

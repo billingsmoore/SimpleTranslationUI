@@ -9,6 +9,7 @@ from engine import DEFAULT_MODEL, list_model_choices
 from styles import CSS
 from handlers import (
     MAX_SLOTS,
+    _handle_cancel_translate,
     _handle_download_click,
     _handle_get_files,
     _handle_next,
@@ -20,6 +21,7 @@ from handlers import (
     _read_prompt,
     _reset_prompt,
     _save_prompt,
+    _set_usage_tracking,
     _translate_all,
     _translate_one,
 )
@@ -43,7 +45,9 @@ def build_app() -> gr.Blocks:
             "the translation prompt below) and generally lower translation quality. For higher-quality, instruction-"
             "following translation, add an **OpenRouter API key** in Settings and pick a model "
             "from the dropdown — this calls OpenRouter's API (usage is billed to your OpenRouter "
-            "account) and uses the editable translation prompt."
+            "account) and uses the editable translation prompt.\n\n"
+            "Usage of this space may be monitored for research purposes. You can opt out of this "
+            "in Settings."
         )
 
         with gr.Row():
@@ -59,6 +63,10 @@ def build_app() -> gr.Blocks:
             )
 
         with gr.Accordion("Settings", open=False):
+            usage_tracking_checkbox = gr.Checkbox(
+                label="Allow usage tracking for research purposes",
+                value=True,
+            )
             with gr.Row():
                 openrouter_api_key = gr.Textbox(
                     label="OpenRouter API Key (optional)",
@@ -142,7 +150,7 @@ def build_app() -> gr.Blocks:
             inputs=[app_state, openrouter_api_key, openrouter_model, *slot_sources, *slot_targets],
             outputs=translate_all_outputs,
         )
-        cancel_btn.click(fn=None, cancels=[translate_event])
+        cancel_btn.click(_handle_cancel_translate, inputs=[app_state], outputs=[app_state], cancels=[translate_event])
 
         save_btn.click(_handle_save, inputs=edit_inputs, outputs=[app_state, status_output])
         download_btn.click(
@@ -171,8 +179,12 @@ def build_app() -> gr.Blocks:
                 outputs=[app_state, slot_targets[i]],
             )
 
-        save_prompt_btn.click(_save_prompt, inputs=[prompt_box], outputs=[prompt_status])
-        reset_prompt_btn.click(_reset_prompt, inputs=[], outputs=[prompt_box, prompt_status])
+        save_prompt_btn.click(_save_prompt, inputs=[app_state, prompt_box], outputs=[app_state, prompt_status])
+        reset_prompt_btn.click(_reset_prompt, inputs=[app_state], outputs=[app_state, prompt_box, prompt_status])
+
+        usage_tracking_checkbox.change(
+            _set_usage_tracking, inputs=[app_state, usage_tracking_checkbox], outputs=[app_state],
+        )
 
     return demo
 

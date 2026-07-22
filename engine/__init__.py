@@ -12,6 +12,7 @@ from .formats import (
     parse_json,
 )
 from .prompt import read_prompt, save_prompt, reset_prompt, PROMPT_PATH
+from .usage_store import log_event
 from .translate import (
     CURATED_MODELS,
     DEFAULT_MODEL,
