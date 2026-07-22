@@ -357,8 +357,23 @@ def test_translate_one_logs_translate_event():
         h._translate_one(state, 0, "source text", "api-key", "model-x")
     event_type, session_id, payload = mock_log.call_args[0]
     assert event_type == "translate"
-    assert payload["backend"] == "openrouter:model-x"
+    assert payload["backend"] == "openrouter"
+    assert payload["model"] == "model-x"
+    assert payload["prompt"] == h.read_prompt()
     assert payload["segments"] == [{"source": "source text", "target": "translated!"}]
+
+
+def test_translate_one_logs_local_backend_without_prompt():
+    state = h._make_state()
+    state["segments"] = _segments("source text")
+    with patch.object(h, "_engine_translate_one", return_value="translated!"), \
+         patch.object(h, "using_openrouter", return_value=False), \
+         patch.object(h, "log_event") as mock_log:
+        h._translate_one(state, 0, "source text", None, "model-x")
+    event_type, session_id, payload = mock_log.call_args[0]
+    assert payload["backend"] == "local_cpu"
+    assert payload["model"] == "billingsmoore/mlotsawa-ground-base"
+    assert payload["prompt"] is None
 
 
 def test_translate_one_records_error_in_target():
@@ -407,8 +422,32 @@ def test_translate_all_reports_completion_status():
 
     event_type, session_id, payload = mock_log.call_args[0]
     assert event_type == "translate"
+    assert payload["backend"] == "openrouter"
+    assert payload["model"] == "model-x"
+    assert payload["prompt"] == h.read_prompt()
     assert payload["segment_count"] == 2
     assert payload["segments"] == [{"source": "a", "target": "A"}, {"source": "b", "target": "B"}]
+
+
+def test_translate_all_logs_local_backend_without_prompt():
+    state = h._make_state()
+    state["segments"] = _segments("a")
+    slot_values = ["a"] + [""] * (h.MAX_SLOTS - 1) + [""] * h.MAX_SLOTS
+
+    def fake_translate_segments(segments, api_key, model, progress_callback=None, stop=None):
+        for seg in segments:
+            seg["target"] = seg["source"].upper()
+        return segments, []
+
+    with patch.object(h, "translate_segments", side_effect=fake_translate_segments), \
+         patch.object(h, "using_openrouter", return_value=False), \
+         patch.object(h, "log_event") as mock_log:
+        list(h._translate_all(state, None, "model-x", *slot_values))
+
+    event_type, session_id, payload = mock_log.call_args[0]
+    assert payload["backend"] == "local_cpu"
+    assert payload["model"] == "billingsmoore/mlotsawa-ground-base"
+    assert payload["prompt"] is None
 
 
 def test_translate_all_reports_errors_in_status():

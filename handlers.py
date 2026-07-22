@@ -293,9 +293,11 @@ def _translate_one(state: dict, slot_idx: int, source: str, api_key: str, model:
         segments[actual_idx]["target"] = text
         state["segments"] = segments
 
-    backend = f"openrouter:{model}" if using_openrouter(api_key) else "local_cpu"
+    is_openrouter = using_openrouter(api_key)
     _log(state, "translate", {
-        "backend": backend,
+        "backend": "openrouter" if is_openrouter else "local_cpu",
+        "model": model if is_openrouter else "billingsmoore/mlotsawa-ground-base",
+        "prompt": read_prompt() if is_openrouter else None,
         "segment_count": 1,
         "segments": [{"source": source, "target": text}],
     })
@@ -308,7 +310,8 @@ def _translate_all(state, api_key, model, *slot_values):
     targets = list(slot_values[MAX_SLOTS:])
     state = _save_page_edits(state, sources, targets)
 
-    backend = "OpenRouter" if using_openrouter(api_key) else "local CPU model (mlotsawa-ground-base)"
+    is_openrouter = using_openrouter(api_key)
+    backend = "OpenRouter" if is_openrouter else "local CPU model (mlotsawa-ground-base)"
 
     stop = threading.Event()
     result = [None, None]
@@ -350,7 +353,9 @@ def _translate_all(state, api_key, model, *slot_values):
         status += f" {len(errors)} error(s)."
 
     _log(state, "translate", {
-        "backend": backend,
+        "backend": "openrouter" if is_openrouter else "local_cpu",
+        "model": model if is_openrouter else "billingsmoore/mlotsawa-ground-base",
+        "prompt": read_prompt() if is_openrouter else None,
         "segment_count": count,
         "segments": [{"source": seg.get("source", ""), "target": seg.get("target", "")} for seg in segments],
     })
